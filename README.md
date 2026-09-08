@@ -88,6 +88,13 @@ instead of a raw `docker run`.
 | `/state` | Persists the incremental-scan state so restarts don't trigger a full rescan. |
 | `/var/lib/clamav` | Persists ClamAV virus definitions across container recreation (avoids a ~100MB re-download every restart). |
 
+## Updating
+
+`docker run` does **not** re-check a tag it already has cached locally — if you're managing this
+outside Unraid's Docker UI (which handles this for you), run `docker pull ghcr.io/capmike1/malwarr:latest`
+before recreating the container, or you'll silently keep running the old image under a `:latest`
+tag that looks current but isn't.
+
 ## Resource notes
 
 - ClamAV scanning is CPU-intensive on a full library sweep. `--cpus=2` (or similar) is
