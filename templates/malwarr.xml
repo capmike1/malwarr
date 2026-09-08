@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Malwarr</Name>
+  <Repository>ghcr.io/capmike1/malwarr:latest</Repository>
+  <Registry>https://github.com/capmike1/malwarr</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/capmike1/malwarr/issues</Support>
+  <Project>https://github.com/capmike1/malwarr</Project>
+  <Overview>Malwarr scans your downloads and media library for malware disguised as video
+files - the classic ".exe renamed with a scene-release filename" trick - plus real
+signature-based detection via ClamAV. Sits between your download client and Tdarr/your
+library: watches the downloads folder continuously and sweeps the full media library on
+a nightly schedule. Flagged files are quarantined, never auto-deleted. Discord webhook
+notifications on every finding.</Overview>
+  <Category>Tools: Backup:</Category>
+  <WebUI/>
+  <TemplateURL>https://raw.githubusercontent.com/capmike1/malwarr/main/templates/malwarr.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/capmike1/malwarr/main/icon.png</Icon>
+  <ExtraParams>--cpus=2</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Downloads Path" Target="/data/downloads" Default="" Mode="rw" Description="Your download client's completed downloads folder. Scanned continuously." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Media Path" Target="/data/media" Default="" Mode="rw" Description="Your media library root. Swept nightly on a configurable schedule." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Quarantine Path" Target="/quarantine" Default="" Mode="rw" Description="Flagged files are moved here, never deleted. Give it real disk space." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="State Path" Target="/state" Default="/mnt/user/appdata/malwarr/state" Mode="rw" Description="Persists incremental scan state across restarts." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/malwarr/state</Config>
+  <Config Name="ClamAV DB Path" Target="/var/lib/clamav" Default="/mnt/user/appdata/malwarr/clamav-db" Mode="rw" Description="Persists ClamAV virus definitions across restarts (avoids ~100MB re-download each time)." Type="Path" Display="advanced" Required="true" Mask="false">/mnt/user/appdata/malwarr/clamav-db</Config>
+  <Config Name="Discord Webhook URL" Target="DISCORD_WEBHOOK_URL" Default="" Mode="" Description="Discord webhook for scan notifications. Leave blank to just log to container console." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Media Scan Start Hour" Target="MEDIA_SCAN_START_HOUR" Default="01:00" Mode="" Description="24h HH:MM - when the nightly full media sweep starts." Type="Variable" Display="always" Required="false" Mask="false">01:00</Config>
+  <Config Name="Watch Interval Seconds" Target="WATCH_INTERVAL_SECONDS" Default="120" Mode="" Description="How often the downloads folder is checked." Type="Variable" Display="advanced" Required="false" Mask="false">120</Config>
+  <Config Name="ClamAV Enabled" Target="CLAMAV_ENABLED" Default="true" Mode="" Description="Set to false to skip ClamAV and use only the lightweight magic-byte/extension check." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="Timezone" Target="TZ" Default="" Mode="" Description="e.g. America/New_York - affects when the nightly sweep fires." Type="Variable" Display="always" Required="false" Mask="false"/>
+</Container>
