@@ -33,10 +33,13 @@ See [SECURITY.md](SECURITY.md) for exactly what this does and doesn't catch.
 ```bash
 docker run -d --name=malwarr \
   --cpus=2 \
+  -e PUID=99 \
+  -e PGID=100 \
   -e TZ=America/New_York \
   -e MEDIA_SCAN_START_HOUR=01:00 \
   -e CLAMAV_ENABLED=true \
   -e WATCH_INTERVAL_SECONDS=120 \
+  -e MIN_FILE_AGE_SECONDS=90 \
   -e DISCORD_WEBHOOK_URL='https://discord.com/api/webhooks/...' \
   -v /path/to/downloads:/data/downloads \
   -v /path/to/media:/data/media \
@@ -54,11 +57,26 @@ instead of a raw `docker run`.
 
 | Variable | Default | Description |
 |---|---|---|
+| `PUID` / `PGID` | `99` / `100` | User/group the scanner and ClamAV actually run as (defaults match Unraid's `nobody:users`). The container starts as root only long enough to set this up, then drops privileges — nothing scans or writes files as root. |
 | `DISCORD_WEBHOOK_URL` | *(none)* | Discord webhook for notifications. If unset, findings are only logged to container stdout. |
 | `MEDIA_SCAN_START_HOUR` | `01:00` | 24h `HH:MM` — when the daily `/data/media` sweep starts. It runs to completion, not on a fixed window. |
 | `WATCH_INTERVAL_SECONDS` | `120` | How often `/data/downloads` is checked for new/changed files. |
+| `MIN_FILE_AGE_SECONDS` | `90` | Files modified more recently than this are skipped for one cycle — avoids scanning/moving a file that's still being actively written (e.g. mid-download). |
 | `CLAMAV_ENABLED` | `true` | Set to `false` to skip ClamAV and rely only on the magic-byte/extension check (much lighter, still catches the exact pattern this tool was built for). |
 | `TZ` | *(container default)* | Standard timezone string, affects when the scheduled sweep fires. |
+
+## Notes on safety
+
+- Findings are **quarantined, never deleted automatically** — a false positive costs you a manual
+  move back, not the file.
+- Quarantine uses collision-safe naming — two different flagged files that would map to the same
+  quarantine filename never overwrite each other.
+- If a flagged file had an open file handle at scan time (e.g. Plex was streaming it, Tdarr was
+  transcoding it), the Discord alert notes that. The move itself doesn't disrupt an
+  already-open reader on Linux, but it does mean the file vanishes from its expected library path
+  going forward — which is the point for a genuine finding.
+- If ClamAV's virus definitions go stale (freshclam silently failing for a couple of days), the
+  next media sweep will alert you instead of quietly scanning against outdated signatures.
 
 ## Volume mounts
 

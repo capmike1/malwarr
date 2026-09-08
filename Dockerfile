@@ -6,7 +6,10 @@ RUN apk add --no-cache \
     clamav \
     clamav-libunrar \
     bash \
-    tzdata
+    tzdata \
+    lsof \
+    su-exec \
+    shadow
 
 RUN mkdir -p /var/lib/clamav /app /state /quarantine
 

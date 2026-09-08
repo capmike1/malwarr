@@ -19,6 +19,10 @@ MEDIA_DIR = "/data/media"
 QUARANTINE_DIR = "/quarantine"
 STATE_DIR = "/state"
 WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+# skip files modified more recently than this - avoids scanning/moving a file
+# that's still being actively written (e.g. mid-download), which could
+# produce a false read or, worse, yank a file out from under the writer
+MIN_FILE_AGE_SECONDS = int(os.environ.get("MIN_FILE_AGE_SECONDS", "90"))
 
 MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".m4v"}
 # extensions that should NEVER appear as the real file type, regardless of name
@@ -83,10 +87,31 @@ def clamav_scan(path):
         print(f"[clamav error] {path}: {e}")
         return False, None
 
+def file_in_use(path):
+    """Best-effort check whether another process currently has the file open.
+    Informational only - we still quarantine either way (on Linux, moving a
+    file doesn't disrupt an already-open reader/writer's file descriptor),
+    but it's worth surfacing in the alert so the user knows a stream/job
+    might have been touching it at the moment it was flagged."""
+    try:
+        r = subprocess.run(["lsof", "--", path], capture_output=True, text=True, timeout=10)
+        return r.returncode == 0 and path in r.stdout
+    except Exception:
+        return False
+
 def quarantine_file(path, reason):
     rel = os.path.relpath(path, "/data")
-    dest = os.path.join(QUARANTINE_DIR, rel.replace(os.sep, "__"))
+    base_dest = os.path.join(QUARANTINE_DIR, rel.replace(os.sep, "__"))
     os.makedirs(QUARANTINE_DIR, exist_ok=True)
+    dest = base_dest
+    if os.path.exists(dest):
+        # collision - never silently overwrite a previous quarantine entry
+        stamp = int(time.time())
+        dest = f"{base_dest}.{stamp}"
+        n = 1
+        while os.path.exists(dest):
+            dest = f"{base_dest}.{stamp}-{n}"
+            n += 1
     try:
         shutil.move(path, dest)
         return dest
@@ -118,19 +143,25 @@ def scan_one(path):
     return None
 
 def handle_finding(finding):
+    was_open = file_in_use(finding["path"])
     dest = quarantine_file(finding["path"], finding["reason"])
     msg = (
         f"**{finding['reason']}**\n"
         f"File: `{finding['path']}`\n"
         f"Detail: {finding['detail']}\n"
         f"{'Quarantined to: `' + dest + '`' if dest else 'QUARANTINE FAILED - file left in place, check manually'}"
+        f"{chr(10) + '_Note: this file had an open handle at scan time (e.g. actively playing/transcoding) - already-open readers are unaffected by the move._' if was_open else ''}"
     )
     notify(msg, is_alert=True)
     print(f"FLAGGED: {finding['path']} -> {finding['reason']} ({finding['detail']})")
 
-def file_fingerprint(path):
-    st = os.stat(path)
-    return f"{st.st_size}:{int(st.st_mtime)}"
+def clamav_definitions_age_days():
+    """Returns age in days of the newest ClamAV definition file, or None if none found."""
+    candidates = ["/var/lib/clamav/daily.cvd", "/var/lib/clamav/daily.cld"]
+    mtimes = [os.path.getmtime(p) for p in candidates if os.path.exists(p)]
+    if not mtimes:
+        return None
+    return (time.time() - max(mtimes)) / 86400
 
 def walk_and_scan(root, state_name, skip_unchanged=True):
     state = load_state(state_name) if skip_unchanged else {}
@@ -141,9 +172,15 @@ def walk_and_scan(root, state_name, skip_unchanged=True):
         for fn in filenames:
             path = os.path.join(dirpath, fn)
             try:
-                fp = file_fingerprint(path)
+                st = os.stat(path)
             except FileNotFoundError:
                 continue
+            # skip files still being actively written (e.g. mid-download) -
+            # scanning/moving a growing file risks a false read or corrupting
+            # the writer's in-progress operation. It'll be picked up once stable.
+            if time.time() - st.st_mtime < MIN_FILE_AGE_SECONDS:
+                continue
+            fp = f"{st.st_size}:{int(st.st_mtime)}"
             if skip_unchanged and state.get(path) == fp:
                 continue
             finding = scan_one(path)
@@ -172,6 +209,12 @@ def run_watch_loop():
 
 def run_media_sweep():
     start = time.time()
+    if os.environ.get("CLAMAV_ENABLED", "true").lower() == "true":
+        age = clamav_definitions_age_days()
+        if age is None:
+            notify("**ClamAV definitions not found** - signature scanning is effectively disabled. Check freshclam logs.", is_alert=True)
+        elif age > 2:
+            notify(f"**ClamAV definitions are {age:.1f} days old** - freshclam may be failing silently. Signature detection is running on stale data.", is_alert=True)
     notify(f"Media library sweep starting (`{MEDIA_DIR}`)...")
     scanned, flagged = walk_and_scan(MEDIA_DIR, "media", skip_unchanged=True)
     elapsed = time.time() - start
