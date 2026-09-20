@@ -24,7 +24,6 @@ WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 # produce a false read or, worse, yank a file out from under the writer
 MIN_FILE_AGE_SECONDS = int(os.environ.get("MIN_FILE_AGE_SECONDS", "90"))
 
-MEDIA_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".ts", ".mov", ".wmv", ".m4v"}
 # extensions that should NEVER appear as the real file type, regardless of name
 DANGEROUS_MAGIC_SUBSTRINGS = [
     "PE32", "PE32+", "MS-DOS", "DOS executable", "MZ for MS-DOS",
@@ -119,19 +118,24 @@ def quarantine_file(path, reason):
         notify(f"Failed to quarantine `{path}`: {e}", is_alert=True)
         return None
 
+DANGEROUS_EXTENSIONS = {".exe", ".scr", ".bat", ".cmd", ".com", ".pif", ".msi", ".vbs", ".js", ".jar", ".scf", ".lnk"}
+
 def scan_one(path):
     """Returns finding dict or None"""
     ext = os.path.splitext(path)[1].lower()
     magic = file_magic(path)
 
-    # 1. magic-byte / extension mismatch check (fast, catches disguised executables)
-    if ext in MEDIA_EXTENSIONS or ext in {".exe", ".scr", ".bat", ".cmd", ".com", ".pif", ".msi", ".vbs", ".js", ".jar", ".scf", ".lnk"}:
-        for bad in DANGEROUS_MAGIC_SUBSTRINGS:
-            if bad in magic:
-                return {"path": path, "reason": "type-mismatch", "detail": f"named like media/script but is: {magic}"}
+    # 1. magic-byte check - runs on EVERY file regardless of extension (or lack
+    # of one). A PE32/ELF/Mach-O/shell-script binary has no legitimate reason
+    # to be in a downloads or media folder no matter what it's named - an
+    # extensionless file is not a reason to skip this, it's a reason to look
+    # closer.
+    for bad in DANGEROUS_MAGIC_SUBSTRINGS:
+        if bad in magic:
+            return {"path": path, "reason": "type-mismatch", "detail": f"named '{os.path.basename(path)}' but is: {magic}"}
 
-    # 2. real extension is already a known-dangerous type regardless of magic
-    if ext in {".exe", ".scr", ".bat", ".cmd", ".com", ".pif", ".msi", ".vbs", ".js", ".jar", ".scf", ".lnk"}:
+    # 2. extension is already a known-dangerous type regardless of magic
+    if ext in DANGEROUS_EXTENSIONS:
         return {"path": path, "reason": "dangerous-extension", "detail": magic}
 
     # 3. ClamAV signature scan
